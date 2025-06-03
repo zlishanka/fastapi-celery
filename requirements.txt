@@ -1,0 +1,12 @@
+fastapi>=0.95
+uvicorn>=0.21
+celery>=5.0
+redis>=4.0
+sqlalchemy>=2.0
+asyncpg>=0.26
+aioredis>=2.0.1
+python-jose>=3.3
+python-dotenv>=0.19
+pydantic>=2.0
+psycopg2-binary>=2.9
+mypy>=0.900
