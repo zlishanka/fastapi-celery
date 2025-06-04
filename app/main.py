@@ -52,6 +52,19 @@ async def get_manifest(video_id: str):
     return {"task_id": task.id}
 
 
+# --- Video Processing Route ---
+@app.post("/video_processing")
+@limiter.limit("20/minute")
+async def start_video_processing(
+    request: schemas.VideoProcessingRequest
+):
+    """
+    Trigger async video processing via external service.
+    Returns task_id for checking status later.
+    """
+    task = tasks.process_video_async.delay(video_id=request.video_id)
+    return {"task_id": task.id} 
+
 # --- Task Status Route ---
 @app.get("/task/{task_id}")
 async def get_task_status(task_id: str):

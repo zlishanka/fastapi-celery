@@ -36,7 +36,6 @@ def process_manifest_request(video_id: str) -> Dict[str, str]:
         "playlist_url": f"https://cdn.example.com/streams/{video_id}/master.m3u8" 
     }
 
-# 
 # Use Retries with Exponential Backoff
 @celery_app.task(name="tasks.process_video_async", bind=True, retry_kwargs={'max_retries': 3})
 async def process_video_async(self, video_id: str) -> Dict[str, str]:

@@ -26,3 +26,6 @@ class LiveVideoCreate(BaseModel):
 
 class LiveVideoOut(LiveVideoCreate):
     id: int
+
+class VideoProcessingRequest(BaseModel):
+    video_id: str
