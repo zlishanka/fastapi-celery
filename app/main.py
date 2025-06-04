@@ -1,4 +1,8 @@
 # app/main.py
+"""
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+# ~250 MB per worker 
+"""
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -134,7 +138,7 @@ async def start_gpu_processing(
     Trigger async GPU processing via external service.
     Returns task_id for checking status later.
     """
-    task = await tasks.process_gpu_async.delay(video_id=request.video_id)
+    task = tasks.process_gpu_async.delay(video_id=request.video_id)
     return {"task_id": task.id} 
 
 # --- Task Status Route ---
