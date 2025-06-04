@@ -3,7 +3,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fastapi import WebSocket, APIRouter
+from fastapi import WebSocket, APIRouter, BackgroundTasks
 from celery import Celery
 from celery.result import AsyncResult
 import json
@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from app import models, schemas, auth, tasks, crud
 from app.database import get_db, engine, Base
 from sqlalchemy.future import select
+from app.schemas import GPUCallbackRequest
 
 router = APIRouter() 
 
@@ -26,6 +27,24 @@ celery_app = Celery(
     broker='redis://localhost:6379/0',
     backend='redis://localhost:6379/0'
 )
+
+# Add Callback Route for gpu related tasks
+@router.post("/callback/gpu")
+async def handle_gpu_callback(payload: GPUCallbackRequest, background_tasks: BackgroundTasks):
+    background_tasks.add_task(update_celery_task_state, payload.task_id, payload.status, payload.result_url)
+    return {"status": "received"}
+
+def update_celery_task_state(task_id: str, status: str, result_url: str):
+    """
+    Manually update Celery task state in Redis.
+    """
+    if status == "success":
+        celery_app.backend.mark_as_success(task_id, result={
+            "video_id": result_url.split("/")[-1],
+            "result_url": result_url
+        })
+    elif status == "failed":
+        celery_app.backend.mark_as_failure(task_id, Exception("GPU processing failed"))
 
 # Create WebSocket Endpoint
 # Updates When Task Completes
@@ -83,15 +102,18 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
 
 # --- Manifest Route ---
 @app.get("/manifest")
-@limiter.limit("10/minute")
-async def get_manifest(video_id: str):
-    task = tasks.process_manifest_request.delay(video_id)
+@limiter.limit("60/minute")
+def get_manifest(video_id: str):
+    """
+    internal DB query, quick check
+    """
+    task = tasks.process_manifest_request(video_id)
     return {"task_id": task.id}
 
 
 # --- Video Processing Route ---
 @app.post("/video_processing")
-@limiter.limit("20/minute")
+@limiter.limit("10/minute")
 async def start_video_processing(
     request: schemas.VideoProcessingRequest
 ):
@@ -99,7 +121,20 @@ async def start_video_processing(
     Trigger async video processing via external service.
     Returns task_id for checking status later.
     """
-    task = tasks.process_video_async.delay(video_id=request.video_id)
+    result = await tasks.process_video_async(video_id=request.video_id)
+    return result
+
+# --- GPU Processing Route ---
+@app.post("/gpu_processing")
+@limiter.limit("5/minute")
+async def start_gpu_processing(
+    request: schemas.GpuProcessingRequest
+):
+    """
+    Trigger async GPU processing via external service.
+    Returns task_id for checking status later.
+    """
+    task = await tasks.process_gpu_async.delay(video_id=request.video_id)
     return {"task_id": task.id} 
 
 # --- Task Status Route ---
