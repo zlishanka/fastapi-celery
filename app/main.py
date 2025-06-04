@@ -3,6 +3,12 @@ from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fastapi import WebSocket, APIRouter
+from celery import Celery
+from celery.result import AsyncResult
+import json
+import asyncio
+
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -11,6 +17,37 @@ from fastapi.responses import JSONResponse
 from app import models, schemas, auth, tasks, crud
 from app.database import get_db, engine, Base
 from sqlalchemy.future import select
+
+router = APIRouter() 
+
+# Use same Celery config from tasks.py
+celery_app = Celery(
+    'tasks',
+    broker='redis://localhost:6379/0',
+    backend='redis://localhost:6379/0'
+)
+
+# Create WebSocket Endpoint
+# Updates When Task Completes
+@router.websocket("/ws/task/{task_id}")
+async def websocket_task_update(websocket: WebSocket, task_id: str):
+    await websocket.accept()
+    
+    # Polling loop
+    while True:
+        task_result = celery_app.AsyncResult(task_id)
+        await websocket.send_text(json.dumps({
+            "task_id": task_id,
+            "status": task_result.status,
+            "result": task_result.result
+        }))
+        
+        if task_result.state in ["SUCCESS", "FAILURE"]:
+            break
+        
+        await asyncio.sleep(1)  # poll every second
+
+    await websocket.close()
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -119,3 +156,5 @@ async def delete_video(video_id: int, db: AsyncSession = Depends(get_db)):
     await db.delete(video)
     await db.commit()
     return
+
+app.include_router(router)
