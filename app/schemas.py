@@ -29,11 +29,9 @@ class LiveVideoOut(LiveVideoCreate):
 
 class VideoProcessingRequest(BaseModel):
     video_id: str
-    status: str
-    result_url: str
 
 class GpuProcessingRequest(BaseModel):
-    task_id: str
+    video_id: str
 
 class GPUCallbackRequest(BaseModel):
     task_id: str
