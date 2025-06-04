@@ -4,13 +4,26 @@
 celery -A tasks worker --loglevel=info -P gevent -c 100     # Greenlets
 celery -A tasks worker --loglevel=info -P prefork -c 4      # Multiprocessing
 celery -A tasks worker --loglevel=info -P --autoscale=100,5 # Dynamic
+celery -A tasks.celery_app flower --port=5555 
+
 """
 
 from celery import Celery
 from typing import Dict
 import asyncio
+import nest_asyncio
 import httpx  # Async HTTP client
 from typing import Dict
+import sentry_sdk
+from sentry_sdk.integrations.celery import CeleryIntegration
+
+sentry_sdk.init(
+    dsn="YOUR_SENTRY_DSN",
+    integrations=[CeleryIntegration()]
+)
+
+# Apply patch to allow nested event loops
+nest_asyncio.apply()
 
 celery_app = Celery(
     "tasks",
@@ -19,9 +32,13 @@ celery_app = Celery(
 )
 
 # Set soft/hard timeouts so long-waiting tasks don't hang forever
+# all exceptions in your Celery tasks will be sent to Sentry with full stack trace and context.
 celery_app.conf.update(
     task_soft_time_limit=300,  # 5 minutes
     task_time_limit=600,       # 10 minutes
+    task_default_queue='default',
+    task_send_sent_event=True,
+    worker_send_task_events='state_changed',
 )
 
 @celery_app.task(name="tasks.process_manifest_request")

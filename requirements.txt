@@ -1,12 +1,26 @@
+#This includes all dependencies you need to run:
+
+# FastAPI
+# Celery with async support
+# Flower (for monitoring)
+# Sentry (for error tracking)
+# httpx (async HTTP client used in tasks)
+# async SQLAlchemy ORM (for async DB access)
+# gevent (for high concurrency in Celery workers)
+
 fastapi>=0.95
 uvicorn>=0.21
-celery>=5.0
-redis>=4.0
-sqlalchemy>=2.0
+celery>=5.3
+redis>=4.6
+httpx>=0.24
 asyncpg>=0.26
 aioredis>=2.0.1
+sqlalchemy>=2.0
 python-jose>=3.3
+slowapi>=0.9.6
+flower>=1.2
+sentry-sdk>=7.0
+gevent>=23.0
+psycopg2-binary>=2.9
 python-dotenv>=0.19
 pydantic>=2.0
-psycopg2-binary>=2.9
-mypy>=0.900
