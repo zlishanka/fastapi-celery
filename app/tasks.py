@@ -8,14 +8,17 @@ celery -A tasks.celery_app flower --port=5555
 
 """
 
-from celery import Celery
-from typing import Dict
+from celery import Celery, states
+from typing import Dict, any
 import asyncio
 import nest_asyncio
 import httpx  # Async HTTP client
 from typing import Dict
 import sentry_sdk
 from sentry_sdk.integrations.celery import CeleryIntegration
+
+import boto3
+from botocore.exceptions import ClientError
 
 sentry_sdk.init(
     dsn="YOUR_SENTRY_DSN",
@@ -41,6 +44,13 @@ celery_app.conf.update(
     worker_send_task_events='state_changed',
 )
 
+# Configure AWS SQS
+AWS_REGION = 'us-west-1'
+SQS_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/your-account-id/gpu-processing-queue' 
+
+sqs_client = boto3.client('sqs', region_name=AWS_REGION)
+
+
 @celery_app.task(name="tasks.process_manifest_request")
 def process_manifest_request(video_id: str) -> Dict[str, str]:
     """
@@ -57,9 +67,9 @@ def process_manifest_request(video_id: str) -> Dict[str, str]:
 @celery_app.task(name="tasks.process_video_async", bind=True, retry_kwargs={'max_retries': 3})
 async def process_video_async(self, video_id: str) -> Dict[str, str]:
     """
-    Sends a video for GPU processing via external API and waits for response.
+    Sends a video for video processing via external API and waits for response.
     """
-    url = "https://gpu-processing.example.com/api/process" 
+    url = "https://video-processing.example.com/api/process" 
 
     async with httpx.AsyncClient() as client:
         try:
@@ -68,3 +78,31 @@ async def process_video_async(self, video_id: str) -> Dict[str, str]:
             return {"video_id": video_id, "status": "processed", "result_url": response.json()["url"]}
         except httpx.HTTPError as exc:
             raise self.retry(exc=exc)
+
+@celery_app.task(name="tasks.process_gpu_async", bind=True, acks_late=True)
+async def process_gpu_async(self, video_id: str) -> Dict[str, str]:
+    """
+    Celery task that submits a GPU processing job via AWS SQS.
+    Does NOT wait for result — returns immediately after sending message.
+    """
+    try:
+        # Send message to SQS queue
+        response = sqs_client.send_message(
+            QueueUrl=SQS_QUEUE_URL,
+            MessageBody=json.dumps({
+                "task_id": self.request.id,
+                "video_id": video_id,
+                "callback_url": "http://your-api.com/callback/gpu"
+            }),
+            MessageGroupId="gpu_jobs"  # Required if using FIFO queues
+        )
+
+        return {
+            "status": "queued",
+            "message_id": response.get("MessageId"),
+            "video_id": video_id,
+            "task_id": self.request.id
+        }
+
+    except ClientError as e:
+        raise self.retry(exc=e, countdown=10, max_retries=3)
