@@ -5,7 +5,11 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
 """
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi_cache.decorator import cache
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from fastapi_cache import FastAPICache
+from fastapi_cache.decorator import cache
 
 from fastapi import WebSocket, APIRouter, BackgroundTasks
 from celery import Celery
@@ -22,6 +26,7 @@ from app import models, schemas, auth, tasks, crud
 from app.database import get_db, engine, Base
 from sqlalchemy.future import select
 from app.schemas import GPUCallbackRequest
+from app.cache import init_redis_cache
 
 router = APIRouter() 
 
@@ -88,9 +93,10 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
 
 # Create DB tables
 @app.on_event("startup")
-async def init_db():
+async def startup_event():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await init_redis_cache()
 
 
 # --- Auth Routes ---
@@ -152,19 +158,21 @@ async def get_task_status(task_id: str):
     }
 
 
-# --- Admin Routes ---
-@app.post("/admin/videos", response_model=schemas.LiveVideoOut)
+# --- Video Management Routes ---
+@app.post("/videos", response_model=schemas.LiveVideoOut)
 async def create_video(video: schemas.LiveVideoCreate, db: AsyncSession = Depends(get_db)):
     return await crud.create_video(db, video)
 
 
-@app.get("/admin/videos", response_model=list[schemas.LiveVideoOut])
+@app.get("/videos", response_model=list[schemas.LiveVideoOut])
+@cache(expire=60)  # cache for 60 seconds
 async def list_videos(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(models.LiveVideo))
     return result.scalars().all()
 
 
-@app.get("/admin/videos/{video_id}", response_model=schemas.LiveVideoOut)
+@app.get("/videos/{video_id}", response_model=schemas.LiveVideoOut)
+@cache(expire=60)  # cache for 60 seconds
 async def get_video(video_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(models.LiveVideo).where(models.LiveVideo.id == video_id))
     video = result.scalars().first()
@@ -173,7 +181,7 @@ async def get_video(video_id: int, db: AsyncSession = Depends(get_db)):
     return video
 
 
-@app.put("/admin/videos/{video_id}", response_model=schemas.LiveVideoOut)
+@app.put("/videos/{video_id}", response_model=schemas.LiveVideoOut)
 async def update_video(video_id: int, updated: schemas.LiveVideoCreate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(models.LiveVideo).where(models.LiveVideo.id == video_id))
     video = result.scalars().first()
@@ -183,10 +191,12 @@ async def update_video(video_id: int, updated: schemas.LiveVideoCreate, db: Asyn
         setattr(video, key, val)
     await db.commit()
     await db.refresh(video)
+    await FastAPICache.clear(namespace="get_popular_videos")  # clear specific key
+    await FastAPICache.clear()  # clear all cache
     return video
 
 
-@app.delete("/admin/videos/{video_id}", status_code=204)
+@app.delete("/videos/{video_id}", status_code=204)
 async def delete_video(video_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(models.LiveVideo).where(models.LiveVideo.id == video_id))
     video = result.scalars().first()

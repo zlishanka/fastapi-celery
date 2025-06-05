@@ -9,6 +9,7 @@
 # gevent (for high concurrency in Celery workers)
 
 fastapi>=0.95
+fastapi-cache2[redis]==0.1.0
 uvicorn>=0.21
 celery>=5.3
 redis>=4.6
@@ -26,3 +27,5 @@ python-dotenv>=0.19
 pydantic>=2.0
 awscli 
 boto3
+botocore
+

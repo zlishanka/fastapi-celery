@@ -3,11 +3,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import LiveVideo
 from app.schemas import LiveVideoCreate
 
+from fastapi_cache.decorator import cache
+from fastapi_cache import FastAPICache
+from fastapi_cache.decorator import cache
+
 
 async def get_video_by_id(db: AsyncSession, video_id: int):
     result = await db.execute(select(LiveVideo).where(LiveVideo.id == video_id))
     return result.scalars().first()
-
 
 async def create_video(db: AsyncSession, video: LiveVideoCreate):
     db_video = LiveVideo(**video.model_dump())
